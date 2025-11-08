@@ -6,16 +6,17 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using RoleplaySim.Agents;
 using RoleplaySim.Chat;
 
 namespace RoleplaySim.Chatroom;
 
 public class Chatroom
 {
-    private readonly List<Agent> _agents = new();
+    private readonly List<IChatParticipant> _participants = new();
+    private readonly Dictionary<string, string> _displayNames = new();
     private readonly List<ChatEvent> _timeline = new();
     private readonly ILogger<Chatroom> _logger;
+    private IChatParticipant? _userParticipant;
 
     public Chatroom(IOptions<ChatroomConfig> options, ILogger<Chatroom> logger)
     {
@@ -25,13 +26,40 @@ public class Chatroom
 
     public ChatroomConfig Config { get; }
     public IReadOnlyList<ChatEvent> Timeline => _timeline;
-    public IEnumerable<string> AgentIds => _agents.Select(a => a.State.AgentId);
-
-    public void AddAgent(Agent agent)
+    public IEnumerable<string> ParticipantIds
     {
-        _agents.Add(agent);
-        _logger.LogInformation("Agent {Agent} joined the chatroom.", agent.State.DisplayName);
+        get
+        {
+            foreach (var participant in _participants)
+            {
+                yield return participant.ParticipantId;
+            }
+
+            if (_userParticipant is not null)
+            {
+                yield return _userParticipant.ParticipantId;
+            }
+        }
     }
+
+    public void AddParticipant(IChatParticipant participant)
+    {
+        _participants.Add(participant);
+        _displayNames[participant.ParticipantId] = participant.DisplayName;
+        _logger.LogInformation("Participant {Participant} joined the chatroom.", participant.DisplayName);
+    }
+
+    public void SetUserParticipant(IChatParticipant participant)
+    {
+        _userParticipant = participant;
+        _displayNames[participant.ParticipantId] = participant.DisplayName;
+        _logger.LogInformation("User {Participant} joined the chatroom.", participant.DisplayName);
+    }
+
+    public string GetDisplayName(string participantId) =>
+        _displayNames.TryGetValue(participantId, out var name)
+            ? name
+            : participantId;
 
     public IEnumerable<ChatEvent> GetRecentPublicTranscript(int window) =>
         _timeline.Where(e => e.Channel == ChannelType.Public)
@@ -44,16 +72,34 @@ public class Chatroom
         var rng = new Random();
         for (var turn = 0; turn < maxTurns && !ct.IsCancellationRequested; turn++)
         {
-            foreach (var agent in _agents.OrderBy(_ => rng.Next()))
+            foreach (var participant in _participants.OrderBy(_ => rng.Next()))
             {
-                var (priv, pub) = await agent.TakeTurnAsync(this, ct).ConfigureAwait(false);
+                var (priv, pub) = await participant.TakeTurnAsync(this, ct).ConfigureAwait(false);
 
-                _timeline.Add(priv);
+                if (priv is not null)
+                {
+                    _timeline.Add(priv);
+                }
+
                 _timeline.Add(pub);
 
                 yield return pub;
 
                 await Task.Delay(Config.MinAgentDelay, ct).ConfigureAwait(false);
+            }
+
+            if (_userParticipant is not null)
+            {
+                var (priv, pub) = await _userParticipant.TakeTurnAsync(this, ct).ConfigureAwait(false);
+
+                if (priv is not null)
+                {
+                    _timeline.Add(priv);
+                }
+
+                _timeline.Add(pub);
+
+                yield return pub;
             }
         }
     }

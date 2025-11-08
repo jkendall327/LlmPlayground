@@ -34,12 +34,18 @@ public class ChatSessionRunner
         foreach (var persona in _options.Value.Personas)
         {
             var agent = ActivatorUtilities.CreateInstance<Agent>(_serviceProvider, persona);
-            _chatroom.AddAgent(agent);
+            _chatroom.AddParticipant(agent);
         }
+
+        Console.Write("Enter your display name (leave blank for 'You'): ");
+        var name = Console.ReadLine() ?? string.Empty;
+        var user = new HumanParticipant(name);
+        _chatroom.SetUserParticipant(user);
 
         await foreach (var evt in _chatroom.RunAsync(_chatroom.Config.MaxTurns, cancellationToken).ConfigureAwait(false))
         {
-            _logger.LogInformation("[{Timestamp:HH:mm:ss}] {Sender}: {Content}", evt.Timestamp, evt.SenderId, evt.Content);
+            var sender = _chatroom.GetDisplayName(evt.SenderId);
+            _logger.LogInformation("[{Timestamp:HH:mm:ss}] {Sender}: {Content}", evt.Timestamp, sender, evt.Content);
         }
     }
 }
