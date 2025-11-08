@@ -11,7 +11,7 @@ using ChatroomType = RoleplaySim.Chatroom.Chatroom;
 
 namespace RoleplaySim.Agents;
 
-public class Agent
+public class Agent : IChatParticipant
 {
     private readonly ILlmClient _llm;
 
@@ -23,7 +23,10 @@ public class Agent
         _llm = llm;
     }
 
-    public async Task<(ChatEvent privateThought, ChatEvent publicSpeech)> TakeTurnAsync(
+    public string ParticipantId => State.AgentId;
+    public string DisplayName => State.DisplayName;
+
+    public async Task<(ChatEvent? privateThought, ChatEvent publicSpeech)> TakeTurnAsync(
         ChatroomType room,
         CancellationToken ct = default)
     {
@@ -52,7 +55,7 @@ public class Agent
             SenderId: State.AgentId,
             Channel: ChannelType.Public,
             Content: result.Speak,
-            VisibleTo: room.AgentIds.ToArray()
+            VisibleTo: room.ParticipantIds.ToArray()
         );
 
         if (!string.IsNullOrWhiteSpace(result.Thought))
